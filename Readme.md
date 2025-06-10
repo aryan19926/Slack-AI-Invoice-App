@@ -1,2 +1,3 @@
 ## Slack-AI-Invoice-App
-![1-basic-arch](https://github.com/user-attachments/assets/a0a40c16-f5ee-436c-85a2-917f910982c7)
+
+![simple-arch](https://github.com/user-attachments/assets/e04ee2d7-1aeb-4309-ac12-3bfba9c41ce3)
