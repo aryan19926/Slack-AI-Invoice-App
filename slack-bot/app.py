@@ -17,8 +17,7 @@ GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini
 SYSTEM_PROMPT = (
     "You are an AI assistant for invoice management. "
     "You can call the following API endpoints to help users with their requests. "
-    "If the user's request is about invoices, ALWAYS respond ONLY with a JSON object as described below. "
-    "Do NOT reply with plain text unless the request is not related to invoices.\n"
+    "For invoice-related requests, respond with a JSON object as described below.\n"
     "API Endpoints:\n"
     "1. get_invoice: Get details for a specific invoice.\n"
     "   Params: invoice_id (str), user_id (str, optional)\n"
@@ -28,15 +27,35 @@ SYSTEM_PROMPT = (
     "   Params: status (str, optional), due_date_before (str, optional), customer_name (str, optional), created_by_user_id (str, optional), invoice_type (str, optional)\n"
     "4. search_invoices: Search for and list invoices matching criteria (for when the user asks for a list of invoices, e.g., 'all invoices with status Draft').\n"
     "   Params: status (str, optional), due_date_before (str, optional), customer_name (str, optional), created_by_user_id (str, optional), invoice_type (str, optional)\n"
-    "Respond in this format for actions:\n"
+    "Respond in this format:\n"
     '{"action": "search_invoices", "params": { ... }}\n'
-    "If the request is not about invoices, you may reply with a plain message.\n"
     "\n"
     "Examples:\n"
     "User: Give all invoices with status Draft\n"
     '{"action": "search_invoices", "params": {"status": "Draft"}}\n'
     "User: What is the total outstanding for paid invoices?\n"
     '{"action": "get_summary", "params": {"status": "Paid"}}\n'
+)
+
+FORMAT_PROMPT = (
+    "You are a helpful assistant that formats invoice data into clear, natural language responses. "
+    "Your task is to transform raw invoice data into easy-to-understand summaries. "
+    "Follow these guidelines:\n"
+    "1. Be concise but informative\n"
+    "2. Highlight key numbers and important details\n"
+    "3. Use bullet points for lists\n"
+    "4. Format currency values appropriately\n"
+    "5. Group related information together\n"
+    "6. Use natural, conversational language\n"
+    "7. If there are any errors or empty results, explain them clearly\n"
+    "\n"
+    "Example format:\n"
+    "Here's a summary of your invoices:\n"
+    "• Total amount: $10,000\n"
+    "• Number of invoices: 5\n"
+    "• Status breakdown:\n"
+    "  - Paid: 3 invoices ($6,000)\n"
+    "  - Pending: 2 invoices ($4,000)\n"
 )
 
 API_SERVER_URL = os.environ.get("API_SERVER_URL", "http://localhost:8000")
@@ -72,12 +91,24 @@ def extract_json_from_code_block(text):
         return '\n'.join(lines[1:-1])
     return text
 
+def format_api_response(api_result, original_query):
+    format_prompt = (
+        f"{FORMAT_PROMPT}\n\n"
+        f"User's original query: {original_query}\n\n"
+        f"API Response: {json.dumps(api_result)}\n\n"
+        "Please provide a natural language response:"
+    )
+    
+    formatted_response = ask_gemini(format_prompt)
+    return formatted_response
+
 @app.message("")  # Respond to any message
 def message_gemini(message, say):
     user = message['user']
     text = message.get('text', '')
     thread_ts = message.get('thread_ts') or message.get('ts')
-
+    # print user id
+    print("[User ID]", user)
     # you could fetch recent conversation context here for RAG
     context = None  # For now, no extra context
 
@@ -145,23 +176,94 @@ def message_gemini(message, say):
         print("[API RESULT]", api_result)
         # Format the API result for Slack
         if api_result:
-            formatted = f"<@{user}>\n```\n{json.dumps(api_result, indent=2)}\n```"
-            say(formatted, thread_ts=thread_ts)
+            # Get natural language response
+            formatted_response = format_api_response(api_result, text)
+            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
         else:
             say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
 
-
-# # Handle the app_mention event
-# @app.event("app_mention")
-# def handle_app_mention(event, say):
-#     user_message = event["text"].strip()
-#     # Use the LLM to process the message and determine if a tool should be used
-#     gemini_response = ask_gemini(user_message)
-#     say(gemini_response)
+# Handle the app_mention event
+@app.event("app_mention")
+def handle_app_mention(event, say):
+    user = event['user']
+    text = event['text'].strip()
+    thread_ts = event.get('thread_ts') or event.get('ts')
     
+    # Remove the bot mention from the text
+    text = text.replace(f"<@{os.environ.get('SLACK_BOT_ID')}>", "").strip()
+    
+    print("[User ID]", user)
+    print("[Mention text]", text)
+    
+    # Get the action from Gemini
+    gemini_response = ask_gemini(text)
+    print("[Gemini raw response]", gemini_response)
+    
+    # Try to parse Gemini's response as JSON for an action
+    action = None
+    try:
+        cleaned = extract_json_from_code_block(gemini_response)
+        action = json.loads(cleaned)
+        print("[Gemini parsed action]", action)
+    except Exception as e:
+        print("[Gemini JSON parse error]", e)
+        action = None
+    
+    if isinstance(action, dict) and 'action' in action and 'params' in action:
+        api_result = None
+        try:
+            if action['action'] == 'get_invoice':
+                invoice_id = action['params'].get('invoice_id')
+                user_id = action['params'].get('user_id', user)
+                api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}?user_id={user_id}"
+                print(f"[API CALL] GET {api_url}")
+                r = requests.get(api_url)
+                api_result = r.json()
+            elif action['action'] == 'update_invoice_status':
+                invoice_id = action['params'].get('invoice_id')
+                status = action['params'].get('status')
+                user_id = action['params'].get('user_id', user)
+                api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}/status?user_id={user_id}"
+                print(f"[API CALL] PUT {api_url} BODY: {{'status': {status}}}")
+                r = requests.put(api_url, json={"status": status})
+                api_result = r.json()
+            elif action['action'] == 'get_summary':
+                params = action['params']
+                query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+                api_url = f"{API_SERVER_URL}/api/invoices/summary"
+                if query:
+                    api_url += f"?{query}"
+                print(f"[API CALL] GET {api_url}")
+                r = requests.get(api_url)
+                api_result = r.json()
+            elif action['action'] == 'search_invoices':
+                params = action['params']
+                query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+                api_url = f"{API_SERVER_URL}/api/invoices/search"
+                if query:
+                    api_url += f"?{query}"
+                print(f"[API CALL] GET {api_url}")
+                r = requests.get(api_url)
+                api_result = r.json()
+            else:
+                api_result = {"error": "Unknown action."}
+        except Exception as e:
+            print("[API ERROR]", e)
+            api_result = {"error": f"API call failed: {str(e)}"}
+        
+        print("[API RESULT]", api_result)
+        if api_result:
+            # Get natural language response
+            formatted_response = format_api_response(api_result, text)
+            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
+        else:
+            say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
+    else:
+        print("[Not an actionable response, sending fallback]")
+        say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
 
 # Start your app
 if __name__ == "__main__":
