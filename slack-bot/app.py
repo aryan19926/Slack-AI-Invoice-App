@@ -24,11 +24,19 @@ SYSTEM_PROMPT = (
     "   Params: invoice_id (str), user_id (str, optional)\n"
     "2. update_invoice_status: Update the status of an invoice.\n"
     "   Params: invoice_id (str), status (str: Draft/Sent/Paid/Overdue/Cancelled), user_id (str, optional)\n"
-    "3. get_summary: Get a summary of invoices.\n"
+    "3. get_summary: Get a summary of invoices (for aggregate numbers only, not lists).\n"
+    "   Params: status (str, optional), due_date_before (str, optional), customer_name (str, optional), created_by_user_id (str, optional), invoice_type (str, optional)\n"
+    "4. search_invoices: Search for and list invoices matching criteria (for when the user asks for a list of invoices, e.g., 'all invoices with status Draft').\n"
     "   Params: status (str, optional), due_date_before (str, optional), customer_name (str, optional), created_by_user_id (str, optional), invoice_type (str, optional)\n"
     "Respond in this format for actions:\n"
-    '{"action": "get_invoice", "params": { ... }}\n'
-    "If the request is not about invoices, you may reply with a plain message."
+    '{"action": "search_invoices", "params": { ... }}\n'
+    "If the request is not about invoices, you may reply with a plain message.\n"
+    "\n"
+    "Examples:\n"
+    "User: Give all invoices with status Draft\n"
+    '{"action": "search_invoices", "params": {"status": "Draft"}}\n'
+    "User: What is the total outstanding for paid invoices?\n"
+    '{"action": "get_summary", "params": {"status": "Paid"}}\n'
 )
 
 API_SERVER_URL = os.environ.get("API_SERVER_URL", "http://localhost:8000")
@@ -70,7 +78,7 @@ def message_gemini(message, say):
     text = message.get('text', '')
     thread_ts = message.get('thread_ts') or message.get('ts')
 
-    # Optionally, you could fetch recent conversation context here for RAG
+    # you could fetch recent conversation context here for RAG
     context = None  # For now, no extra context
 
     gemini_response = ask_gemini(text, context)
@@ -119,6 +127,15 @@ def message_gemini(message, say):
                 print(f"[API CALL] GET {api_url}")
                 r = requests.get(api_url)
                 api_result = r.json()
+            elif action['action'] == 'search_invoices':
+                params = action['params']
+                query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
+                api_url = f"{API_SERVER_URL}/api/invoices/search"
+                if query:
+                    api_url += f"?{query}"
+                print(f"[API CALL] GET {api_url}")
+                r = requests.get(api_url)
+                api_result = r.json()
             else:
                 api_result = {"error": "Unknown action."}
         except Exception as e:
@@ -135,6 +152,16 @@ def message_gemini(message, say):
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
+
+
+# # Handle the app_mention event
+# @app.event("app_mention")
+# def handle_app_mention(event, say):
+#     user_message = event["text"].strip()
+#     # Use the LLM to process the message and determine if a tool should be used
+#     gemini_response = ask_gemini(user_message)
+#     say(gemini_response)
+    
 
 # Start your app
 if __name__ == "__main__":
