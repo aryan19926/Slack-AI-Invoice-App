@@ -138,26 +138,49 @@ def message_gemini(message, say):
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}?user_id={user_id}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Invoice not found."
+                    except Exception:
+                        error_msg = "Invoice not found."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'update_invoice_status':
                 invoice_id = action['params'].get('invoice_id')
                 status = action['params'].get('status')
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}/status?user_id={user_id}"
                 print(f"[API CALL] PUT {api_url} BODY: {{'status': {status}}}")
-                r = requests.put(api_url, json={"status": status})
-                api_result = r.json()
+                try:
+                    r = requests.put(api_url, json={"status": status})
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Failed to update invoice status."
+                    except Exception:
+                        error_msg = "Failed to update invoice status."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'get_summary':
                 params = action['params']
-                # Build query string
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
                 api_url = f"{API_SERVER_URL}/api/invoices/summary"
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not get summary."
+                    except Exception:
+                        error_msg = "Could not get summary."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'search_invoices':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -165,8 +188,16 @@ def message_gemini(message, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not search invoices."
+                    except Exception:
+                        error_msg = "Could not search invoices."
+                    api_result = {"error": error_msg}
             else:
                 api_result = {"error": "Unknown action."}
         except Exception as e:
@@ -175,12 +206,11 @@ def message_gemini(message, say):
 
         print("[API RESULT]", api_result)
         # Format the API result for Slack
-        if api_result:
-            # Get natural language response
+        if api_result and "error" in api_result:
+            say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
+        else:
             formatted_response = format_api_response(api_result, text)
             say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
-        else:
-            say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
@@ -220,16 +250,32 @@ def handle_app_mention(event, say):
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}?user_id={user_id}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Invoice not found."
+                    except Exception:
+                        error_msg = "Invoice not found."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'update_invoice_status':
                 invoice_id = action['params'].get('invoice_id')
                 status = action['params'].get('status')
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}/status?user_id={user_id}"
                 print(f"[API CALL] PUT {api_url} BODY: {{'status': {status}}}")
-                r = requests.put(api_url, json={"status": status})
-                api_result = r.json()
+                try:
+                    r = requests.put(api_url, json={"status": status})
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Failed to update invoice status."
+                    except Exception:
+                        error_msg = "Failed to update invoice status."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'get_summary':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -237,8 +283,16 @@ def handle_app_mention(event, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not get summary."
+                    except Exception:
+                        error_msg = "Could not get summary."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'search_invoices':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -246,8 +300,16 @@ def handle_app_mention(event, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    r = requests.get(api_url)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not search invoices."
+                    except Exception:
+                        error_msg = "Could not search invoices."
+                    api_result = {"error": error_msg}
             else:
                 api_result = {"error": "Unknown action."}
         except Exception as e:
@@ -255,12 +317,11 @@ def handle_app_mention(event, say):
             api_result = {"error": f"API call failed: {str(e)}"}
         
         print("[API RESULT]", api_result)
-        if api_result:
-            # Get natural language response
+        if api_result and "error" in api_result:
+            say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
+        else:
             formatted_response = format_api_response(api_result, text)
             say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
-        else:
-            say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
