@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Query, Path
+from fastapi import FastAPI, HTTPException, Depends, Query, Path, Request, Header
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 from datetime import date
@@ -11,7 +11,7 @@ from .models import (
     APIResponse, ErrorResponse, InvoiceStatus, InvoiceType
 )
 from .database import DatabaseClient
-from .auth import get_user_from_request
+from .auth import get_user_from_request, verify_slack_auth
 
 # Load environment variables
 load_dotenv()
@@ -28,7 +28,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure this properly for production
+    allow_origins=["*"],  # change during prod
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,7 +48,8 @@ async def get_invoices_summary(
     due_date_before: Optional[date] = Query(None, description="Filter by due date before this date"),
     customer_name: Optional[str] = Query(None, description="Filter by customer name (partial match)"),
     created_by_user_id: Optional[str] = Query(None, description="Filter by creator user ID"),
-    invoice_type: Optional[InvoiceType] = Query(None, description="Filter by invoice type (RECEIVABLE/PAYABLE)")
+    invoice_type: Optional[InvoiceType] = Query(None, description="Filter by invoice type (RECEIVABLE/PAYABLE)"),
+    auth: bool = Depends(verify_slack_auth)
 ):
     """
     Get a summary of invoices based on various filters.
@@ -86,7 +87,8 @@ async def search_invoices(
     customer_name: Optional[str] = Query(None, description="Search by customer name"),
     status: Optional[InvoiceStatus] = Query(None, description="Filter by status"),
     created_by_user_id: Optional[str] = Query(None, description="Filter by creator"),
-    limit: int = Query(10, ge=1, le=50, description="Maximum number of results")
+    limit: int = Query(10, ge=1, le=50, description="Maximum number of results"),
+    auth: bool = Depends(verify_slack_auth)
 ):
     """
     Search invoices with various filters.
@@ -118,7 +120,8 @@ async def search_invoices(
 @app.get("/api/invoices/{invoice_id}", response_model=Invoice)
 async def get_invoice(
     invoice_id: str = Path(..., description="Invoice ID (e.g., INV-2024-001)"),
-    user_id: Optional[str] = Query(None, description="Slack user ID for filtering")
+    user_id: Optional[str] = Query(None, description="Slack user ID for filtering"),
+    auth: bool = Depends(verify_slack_auth)
 ):
     """
     Retrieve detailed information for a specific invoice.
@@ -153,7 +156,8 @@ async def get_invoice(
 async def update_invoice_status(
     invoice_id: str = Path(..., description="Invoice ID to update"),
     status_update: InvoiceStatusUpdate = ...,
-    user_id: Optional[str] = Query(None, description="Slack user ID for filtering")
+    user_id: Optional[str] = Query(None, description="Slack user ID for filtering"),
+    auth: bool = Depends(verify_slack_auth)
 ):
     """
     Update the status of an invoice.
@@ -198,7 +202,7 @@ async def update_invoice_status(
         )
 
 @app.get("/api/health")
-async def health_check():
+async def health_check(auth: bool = Depends(verify_slack_auth)):
     """Detailed health check with database connectivity"""
     try:
         # Test database connection

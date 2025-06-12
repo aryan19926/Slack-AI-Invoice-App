@@ -2,6 +2,9 @@ import os
 from dotenv import load_dotenv
 import requests
 import json
+import time
+import hmac
+import hashlib
 load_dotenv()
 
 from slack_bolt import App
@@ -59,6 +62,17 @@ FORMAT_PROMPT = (
 )
 
 API_SERVER_URL = os.environ.get("API_SERVER_URL", "http://localhost:8000")
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET")
+
+def generate_slack_signature(body: str, signing_secret: str):
+    timestamp = str(int(time.time()))
+    sig_basestring = f"v0:{timestamp}:{body}"
+    my_signature = 'v0=' + hmac.new(
+        signing_secret.encode(),
+        sig_basestring.encode(),
+        hashlib.sha256
+    ).hexdigest()
+    return my_signature, timestamp
 
 def ask_gemini(prompt, context=None):
     # Compose the full prompt with system instructions
@@ -138,16 +152,46 @@ def message_gemini(message, say):
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}?user_id={user_id}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Invoice not found."
+                    except Exception:
+                        error_msg = "Invoice not found."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'update_invoice_status':
                 invoice_id = action['params'].get('invoice_id')
                 status = action['params'].get('status')
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}/status?user_id={user_id}"
                 print(f"[API CALL] PUT {api_url} BODY: {{'status': {status}}}")
-                r = requests.put(api_url, json={"status": status})
-                api_result = r.json()
+                try:
+                    json_body = {"status": status}
+                    raw_body = json.dumps(json_body)
+                    signature, timestamp = generate_slack_signature(raw_body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp,
+                        "Content-Type": "application/json"
+                    }
+                    r = requests.put(api_url, json=json_body, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Failed to update invoice status."
+                    except Exception:
+                        error_msg = "Failed to update invoice status."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'get_summary':
                 params = action['params']
                 # Build query string
@@ -156,8 +200,22 @@ def message_gemini(message, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not get summary."
+                    except Exception:
+                        error_msg = "Could not get summary."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'search_invoices':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -165,8 +223,22 @@ def message_gemini(message, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not search invoices."
+                    except Exception:
+                        error_msg = "Could not search invoices."
+                    api_result = {"error": error_msg}
             else:
                 api_result = {"error": "Unknown action."}
         except Exception as e:
@@ -220,16 +292,46 @@ def handle_app_mention(event, say):
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}?user_id={user_id}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Invoice not found."
+                    except Exception:
+                        error_msg = "Invoice not found."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'update_invoice_status':
                 invoice_id = action['params'].get('invoice_id')
                 status = action['params'].get('status')
                 user_id = action['params'].get('user_id', user)
                 api_url = f"{API_SERVER_URL}/api/invoices/{invoice_id}/status?user_id={user_id}"
                 print(f"[API CALL] PUT {api_url} BODY: {{'status': {status}}}")
-                r = requests.put(api_url, json={"status": status})
-                api_result = r.json()
+                try:
+                    json_body = {"status": status}
+                    raw_body = json.dumps(json_body)
+                    signature, timestamp = generate_slack_signature(raw_body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp,
+                        "Content-Type": "application/json"
+                    }
+                    r = requests.put(api_url, json=json_body, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Failed to update invoice status."
+                    except Exception:
+                        error_msg = "Failed to update invoice status."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'get_summary':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -237,8 +339,22 @@ def handle_app_mention(event, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not get summary."
+                    except Exception:
+                        error_msg = "Could not get summary."
+                    api_result = {"error": error_msg}
             elif action['action'] == 'search_invoices':
                 params = action['params']
                 query = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
@@ -246,8 +362,22 @@ def handle_app_mention(event, say):
                 if query:
                     api_url += f"?{query}"
                 print(f"[API CALL] GET {api_url}")
-                r = requests.get(api_url)
-                api_result = r.json()
+                try:
+                    body = ""  # GET request, no body
+                    signature, timestamp = generate_slack_signature(body, SLACK_SIGNING_SECRET)
+                    headers = {
+                        "x-slack-signature": signature,
+                        "x-slack-request-timestamp": timestamp
+                    }
+                    r = requests.get(api_url, headers=headers)
+                    r.raise_for_status()
+                    api_result = r.json()
+                except requests.HTTPError:
+                    try:
+                        error_msg = r.json().get("error") or r.json().get("detail") or "Could not search invoices."
+                    except Exception:
+                        error_msg = "Could not search invoices."
+                    api_result = {"error": error_msg}
             else:
                 api_result = {"error": "Unknown action."}
         except Exception as e:
