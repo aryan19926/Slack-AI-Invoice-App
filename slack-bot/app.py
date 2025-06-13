@@ -21,6 +21,7 @@ SYSTEM_PROMPT = (
     "You are an AI assistant for invoice management. "
     "You can call the following API endpoints to help users with their requests. "
     "For invoice-related requests, respond with a JSON object as described below.\n"
+    "If the query is about an invoice, even if the wording is informal or partial (e.g., 'status of invoice inv-2024-001', 'show invoice inv-2024-001', 'is inv-2024-001 paid?'), respond with the appropriate JSON action as described below.\n"
     "API Endpoints:\n"
     "1. get_invoice: Get details for a specific invoice.\n"
     "   Params: invoice_id (str), user_id (str, optional)\n"
@@ -38,6 +39,10 @@ SYSTEM_PROMPT = (
     '{"action": "search_invoices", "params": {"status": "Draft"}}\n'
     "User: What is the total outstanding for paid invoices?\n"
     '{"action": "get_summary", "params": {"status": "Paid"}}\n'
+    "User: status of invoice inv-2024-001\n"
+    '{"action": "get_invoice", "params": {"invoice_id": "inv-2024-001"}}\n'
+    "User: is inv-2024-001 paid?\n"
+    '{"action": "get_invoice", "params": {"invoice_id": "inv-2024-001"}}\n'
 )
 
 FORMAT_PROMPT = (
@@ -248,9 +253,12 @@ def message_gemini(message, say):
         print("[API RESULT]", api_result)
         # Format the API result for Slack
         if api_result:
-            # Get natural language response
-            formatted_response = format_api_response(api_result, text)
-            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
+            # If the API result contains an 'error', show that error
+            if isinstance(api_result, dict) and 'error' in api_result:
+                say(f"<@{user}> {api_result['error']}", thread_ts=thread_ts)
+            else:
+                formatted_response = format_api_response(api_result, text)
+                say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
         else:
             say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
     else:
@@ -386,9 +394,12 @@ def handle_app_mention(event, say):
         
         print("[API RESULT]", api_result)
         if api_result:
-            # Get natural language response
-            formatted_response = format_api_response(api_result, text)
-            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
+            # If the API result contains an 'error', show that error
+            if isinstance(api_result, dict) and 'error' in api_result:
+                say(f"<@{user}> {api_result['error']}", thread_ts=thread_ts)
+            else:
+                formatted_response = format_api_response(api_result, text)
+                say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
         else:
             say(f"<@{user}> Sorry, I couldn't process your request.", thread_ts=thread_ts)
     else:
