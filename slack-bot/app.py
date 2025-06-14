@@ -56,6 +56,62 @@ FORMAT_PROMPT = (
 
 API_SERVER_URL = os.environ.get("API_SERVER_URL", "http://localhost:8000")
 
+NOT_HELPFUL_MODAL = {
+    "type": "modal",
+    "callback_id": "not_helpful_modal",
+    "title": {
+        "type": "plain_text",
+        "text": "My App",
+        "emoji": True
+    },
+    "submit": {
+        "type": "plain_text",
+        "text": "Submit",
+        "emoji": True
+    },
+    "close": {
+        "type": "plain_text",
+        "text": "Cancel",
+        "emoji": True
+    },
+    "blocks": [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": "This is a section block with checkboxes."
+            },
+            "accessory": {
+                "type": "checkboxes",
+                "options": [
+                    {
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Not Accurate*"
+                        },
+                        "value": "value-0"
+                    },
+                    {
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Not Accurate*"
+                        },
+                        "value": "value-1"
+                    },
+                    {
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": "*Not Accurate*"
+                        },
+                        "value": "value-2"
+                    }
+                ],
+                "action_id": "checkboxes-action"
+            }
+        }
+    ]
+}
+
 def ask_gemini(prompt, context=None):
     # Compose the full prompt with system instructions
     full_prompt = SYSTEM_PROMPT + "\n" + (context or "") + "\nUser: " + prompt
@@ -407,16 +463,16 @@ def action_helpful(body, ack, say):
     say(f"<@{user_id}> Thank you for your feedback!", thread_ts=thread_ts)
 
 @app.action("not-helpful")
-def action_not_helpful(body, ack, say):
+def action_not_helpful(body, ack, client, say):
     ack()
+    trigger_id = body.get("trigger_id")
     user_id = body['user']['id']
-    # Try to get the thread_ts from the action payload
-    thread_ts = None
-    if 'message' in body and 'thread_ts' in body['message']:
-        thread_ts = body['message']['thread_ts']
-    elif 'message' in body and 'ts' in body['message']:
-        thread_ts = body['message']['ts']
-    say(f"<@{user_id}> I'm sorry to hear that. I'll try to improve.", thread_ts=thread_ts)
+    # Open the modal
+    if trigger_id:
+        client.views_open(
+            trigger_id=trigger_id,
+            view=NOT_HELPFUL_MODAL
+        )
 
 
 # Start your app
