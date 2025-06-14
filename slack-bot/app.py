@@ -43,24 +43,15 @@ SYSTEM_PROMPT = (
 )
 
 FORMAT_PROMPT = (
-    "You are a helpful assistant that formats invoice data into clear, natural language responses. "
-    "Your task is to transform raw invoice data into easy-to-understand summaries. "
-    "Follow these guidelines:\n"
-    "1. Be concise but informative\n"
-    "2. Highlight key numbers and important details\n"
-    "3. Use bullet points for lists\n"
-    "4. Format currency values appropriately\n"
-    "5. Group related information together\n"
-    "6. Use natural, conversational language\n"
-    "7. If there are any errors or empty results, explain them clearly\n"
-    "\n"
-    "Example format:\n"
-    "Here's a summary of your invoices:\n"
-    "• Total amount: $10,000\n"
-    "• Number of invoices: 5\n"
-    "• Status breakdown:\n"
-    "  - Paid: 3 invoices ($6,000)\n"
-    "  - Pending: 2 invoices ($4,000)\n"
+    "You are a helpful assistant that formats invoice data for Slack using blocks. "
+    "Your task is to transform raw invoice data into a JSON object with these fields: "
+    "'plain_text' (string, a concise summary addressing the user's query), "
+    "'list' (array of strings, for bullet points if needed, else empty array), "
+    "'error' (boolean, true if there is an error or empty result, else false). "
+    "Do not include any other fields. "
+    "Do not use markdown. "
+    "Example output: {\"plain_text\": \"Here's a summary...\", \"list\": [\"item 1\", \"item 2\"], \"error\": false} "
+    "If there is an error or empty result, set 'error' to true and explain in 'plain_text'. "
 )
 
 API_SERVER_URL = os.environ.get("API_SERVER_URL", "http://localhost:8000")
@@ -100,11 +91,83 @@ def format_api_response(api_result, original_query):
         f"{FORMAT_PROMPT}\n\n"
         f"User's original query: {original_query}\n\n"
         f"API Response: {json.dumps(api_result)}\n\n"
-        "Please provide a natural language response:"
+        "Please provide only the JSON object as described."
     )
-    
     formatted_response = ask_gemini(format_prompt)
-    return formatted_response
+    # Try to parse the JSON output
+    try:
+        cleaned = extract_json_from_code_block(formatted_response)
+        data = json.loads(cleaned)
+    except Exception:
+        # fallback: show as plain text
+        return [{
+            "type": "divider"
+        }, {
+            "type": "rich_text",
+            "elements": [{
+                "type": "rich_text_section",
+                "elements": [{"type": "text", "text": "Sorry, I couldn't format the response."}]
+            }]
+        }, {
+            "type": "divider"
+        }]
+    blocks = []
+    # Divider
+    blocks.append({"type": "divider"})
+    # Plain text (rich_text)
+    if data.get("plain_text"):
+        blocks.append({
+            "type": "rich_text",
+            "elements": [{
+                "type": "rich_text_section",
+                "elements": [{"type": "text", "text": data["plain_text"]}]
+            }]
+        })
+    # List (rich_text_list)
+    if data.get("list") and isinstance(data["list"], list) and len(data["list"]):
+        # Add a heading for the list
+        blocks.append({
+            "type": "rich_text",
+            "elements": [
+                {
+                    "type": "rich_text_section",
+                    "elements": [{"type": "text", "text": "Details:"}]
+                },
+                {
+                    "type": "rich_text_list",
+                    "style": "bullet",
+                    "indent": 0,
+                    "border": 0,
+                    "elements": [
+                        {
+                            "type": "rich_text_section",
+                            "elements": [{"type": "text", "text": item}]
+                        } for item in data["list"]
+                    ]
+                }
+            ]
+        })
+    # Actions (buttons)
+    blocks.append({
+        "type": "actions",
+        "elements": [
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "helpful", "emoji": True},
+                "value": "click_me_123",
+                "action_id": "helpful"
+            },
+            {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "not-helpful", "emoji": True},
+                "value": "click_me_123",
+                "action_id": "not-helpful"
+            }
+        ]
+    })
+    # Divider
+    blocks.append({"type": "divider"})
+    return blocks
 
 @app.message("")  # Respond to any message
 def message_gemini(message, say):
@@ -214,7 +277,7 @@ def message_gemini(message, say):
             say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
         else:
             formatted_response = format_api_response(api_result, text)
-            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
+            say(blocks=formatted_response, thread_ts=thread_ts)
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
@@ -325,10 +388,36 @@ def handle_app_mention(event, say):
             say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
         else:
             formatted_response = format_api_response(api_result, text)
-            say(f"<@{user}> {formatted_response}", thread_ts=thread_ts)
+            say(blocks=formatted_response, thread_ts=thread_ts)
     else:
         print("[Not an actionable response, sending fallback]")
         say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
+
+
+@app.action("helpful")
+def action_helpful(body, ack, say):
+    ack()
+    user_id = body['user']['id']
+    # Try to get the thread_ts from the action payload
+    thread_ts = None
+    if 'message' in body and 'thread_ts' in body['message']:
+        thread_ts = body['message']['thread_ts']
+    elif 'message' in body and 'ts' in body['message']:
+        thread_ts = body['message']['ts']
+    say(f"<@{user_id}> Thank you for your feedback!", thread_ts=thread_ts)
+
+@app.action("not-helpful")
+def action_not_helpful(body, ack, say):
+    ack()
+    user_id = body['user']['id']
+    # Try to get the thread_ts from the action payload
+    thread_ts = None
+    if 'message' in body and 'thread_ts' in body['message']:
+        thread_ts = body['message']['thread_ts']
+    elif 'message' in body and 'ts' in body['message']:
+        thread_ts = body['message']['ts']
+    say(f"<@{user_id}> I'm sorry to hear that. I'll try to improve.", thread_ts=thread_ts)
+
 
 # Start your app
 if __name__ == "__main__":
