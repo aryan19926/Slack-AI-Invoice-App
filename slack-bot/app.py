@@ -18,6 +18,7 @@ SYSTEM_PROMPT = (
     "You are an AI assistant for invoice management. "
     "You can call the following API endpoints to help users with their requests. "
     "For invoice-related requests, respond with a JSON object as described below.\n"
+    "If the query is about an invoice, even if the wording is informal or partial (e.g., 'status of invoice INV-2024-001', 'show invoice INV-2024-001', 'is INV-2024-001 paid?'), respond with the appropriate JSON action as described below.\n"
     "API Endpoints:\n"
     "1. get_invoice: Get details for a specific invoice.\n"
     "   Params: invoice_id (str), user_id (str, optional)\n"
@@ -35,6 +36,10 @@ SYSTEM_PROMPT = (
     '{"action": "search_invoices", "params": {"status": "Draft"}}\n'
     "User: What is the total outstanding for paid invoices?\n"
     '{"action": "get_summary", "params": {"status": "Paid"}}\n'
+    "User: status of invoice inv-2024-001\n"
+    '{"action": "get_invoice", "params": {"invoice_id": "inv-2024-001"}}\n'
+    "User: is inv-2024-001 paid?\n"
+    '{"action": "get_invoice", "params": {"invoice_id": "inv-2024-001"}}\n'
 )
 
 FORMAT_PROMPT = (
@@ -87,7 +92,6 @@ def extract_json_from_code_block(text):
     # Remove code block markers if present
     if text.strip().startswith('```'):
         lines = text.strip().split('\n')
-        # Remove the first (``` or ```json) and last (```)
         return '\n'.join(lines[1:-1])
     return text
 
