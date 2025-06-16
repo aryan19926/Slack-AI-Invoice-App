@@ -112,6 +112,18 @@ NOT_HELPFUL_MODAL = {
     ]
 }
 
+LOADING_BLOCKS = [
+    {"type": "divider"},
+    {
+        "type": "rich_text",
+        "elements": [{
+            "type": "rich_text_section",
+            "elements": [{"type": "text", "text": "Quid is working on your request..."}]
+        }]
+    },
+    {"type": "divider"}
+]
+
 def ask_gemini(prompt, context=None):
     # Compose the full prompt with system instructions
     full_prompt = SYSTEM_PROMPT + "\n" + (context or "") + "\nUser: " + prompt
@@ -226,21 +238,25 @@ def format_api_response(api_result, original_query):
     return blocks
 
 @app.message("")  # Respond to any message
-def message_gemini(message, say):
+def message_gemini(message, say, client):
     user = message['user']
     text = message.get('text', '')
     thread_ts = message.get('thread_ts') or message.get('ts')
-    # print user id
+    channel = message['channel']
     print("[User ID]", user)
-    # you could fetch recent conversation context here for RAG
     context = None  # For now, no extra context
 
-    gemini_response = ask_gemini(text, context)
+    # 1. Send loading skeleton
+    loading = client.chat_postMessage(
+        channel=channel,
+        blocks=LOADING_BLOCKS,
+        thread_ts=thread_ts
+    )
+    loading_ts = loading['ts']
 
-    # Debug: print the raw Gemini response
+    gemini_response = ask_gemini(text, context)
     print("[Gemini raw response]", gemini_response)
 
-    # Try to parse Gemini's response as JSON for an action
     action = None
     try:
         cleaned = extract_json_from_code_block(gemini_response)
@@ -330,13 +346,27 @@ def message_gemini(message, say):
         print("[API RESULT]", api_result)
         # Format the API result for Slack
         if api_result and "error" in api_result:
-            say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
+            client.chat_update(
+                channel=channel,
+                ts=loading_ts,
+                text=f"<@{user}> Sorry, {api_result['error']}",
+                blocks=None
+            )
         else:
             formatted_response = format_api_response(api_result, text)
-            say(blocks=formatted_response, thread_ts=thread_ts)
+            client.chat_update(
+                channel=channel,
+                ts=loading_ts,
+                blocks=formatted_response
+            )
     else:
         print("[Not an actionable response, sending fallback]")
-        say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
+        client.chat_update(
+            channel=channel,
+            ts=loading_ts,
+            text=f"<@{user}> Sorry, I couldn't understand your request.",
+            blocks=None
+        )
 
 # Handle the app_mention event
 @app.event("app_mention")
@@ -466,7 +496,7 @@ def action_helpful(body, ack, say):
 def action_not_helpful(body, ack, client, say):
     ack()
     trigger_id = body.get("trigger_id")
-    user_id = body['user']['id']
+    # user_id = body['user']['id']
     # Open the modal
     if trigger_id:
         client.views_open(
