@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import requests
 import json
+from supabase import create_client, Client
 load_dotenv()
 
 from slack_bolt import App
@@ -124,6 +125,25 @@ LOADING_BLOCKS = [
     {"type": "divider"}
 ]
 
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# --- Supabase Slack Login Helpers ---
+def is_user_authenticated(slack_user_id):
+    response = supabase.table("users").select("*").eq("slack_user_id", slack_user_id).execute()
+    return len(response.data) > 0
+
+def store_user_in_supabase(slack_user_id, email):
+    # Only insert if not already present
+    if not is_user_authenticated(slack_user_id):
+        supabase.table("users").insert({"slack_user_id": slack_user_id, "email": email}).execute()
+
+def get_slack_user_email(client, user_id):
+    user_info = client.users_info(user=user_id)
+    return user_info['user']['profile']['email']
+# --- End Supabase Slack Login Helpers ---
+
 def ask_gemini(prompt, context=None):
     # Compose the full prompt with system instructions
     full_prompt = SYSTEM_PROMPT + "\n" + (context or "") + "\nUser: " + prompt
@@ -240,13 +260,31 @@ def format_api_response(api_result, original_query):
 @app.message("")  # Respond to any message
 def message_gemini(message, say, client):
     user = message['user']
+    # --- Require login before proceeding ---
+    if not is_user_authenticated(user):
+        say(
+            "Please log in to use this bot.",
+            blocks=[
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Log in"},
+                            "action_id": "login"
+                        }
+                    ]
+                }
+            ]
+        )
+        return
     text = message.get('text', '')
     thread_ts = message.get('thread_ts') or message.get('ts')
     channel = message['channel']
     print("[User ID]", user)
     context = None  # For now, no extra context
 
-    # 1. Send loading skeleton
+   
     loading = client.chat_postMessage(
         channel=channel,
         blocks=LOADING_BLOCKS,
@@ -370,21 +408,43 @@ def message_gemini(message, say, client):
 
 # Handle the app_mention event
 @app.event("app_mention")
-def handle_app_mention(event, say):
+def handle_app_mention(event, say, client):
     user = event['user']
+    # --- Require login before proceeding ---
+    if not is_user_authenticated(user):
+        say(
+            "Please log in to use this bot.",
+            blocks=[
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Log in"},
+                            "action_id": "login"
+                        }
+                    ]
+                }
+            ]
+        )
+        return
     text = event['text'].strip()
     thread_ts = event.get('thread_ts') or event.get('ts')
-    
+    channel = event['channel']
     # Remove the bot mention from the text
     text = text.replace(f"<@{os.environ.get('SLACK_BOT_ID')}>", "").strip()
-    
     print("[User ID]", user)
     print("[Mention text]", text)
-    
+    # Post loading message
+    loading = client.chat_postMessage(
+        channel=channel,
+        blocks=LOADING_BLOCKS,
+        thread_ts=thread_ts
+    )
+    loading_ts = loading['ts']
     # Get the action from Gemini
     gemini_response = ask_gemini(text)
     print("[Gemini raw response]", gemini_response)
-    
     # Try to parse Gemini's response as JSON for an action
     action = None
     try:
@@ -394,7 +454,6 @@ def handle_app_mention(event, say):
     except Exception as e:
         print("[Gemini JSON parse error]", e)
         action = None
-    
     if isinstance(action, dict) and 'action' in action and 'params' in action:
         api_result = None
         try:
@@ -468,16 +527,29 @@ def handle_app_mention(event, say):
         except Exception as e:
             print("[API ERROR]", e)
             api_result = {"error": f"API call failed: {str(e)}"}
-        
         print("[API RESULT]", api_result)
         if api_result and "error" in api_result:
-            say(f"<@{user}> Sorry, {api_result['error']}", thread_ts=thread_ts)
+            client.chat_update(
+                channel=channel,
+                ts=loading_ts,
+                text=f"<@{user}> Sorry, {api_result['error']}",
+                blocks=None
+            )
         else:
             formatted_response = format_api_response(api_result, text)
-            say(blocks=formatted_response, thread_ts=thread_ts)
+            client.chat_update(
+                channel=channel,
+                ts=loading_ts,
+                blocks=formatted_response
+            )
     else:
         print("[Not an actionable response, sending fallback]")
-        say(f"<@{user}> Sorry, I couldn't understand your request.", thread_ts=thread_ts)
+        client.chat_update(
+            channel=channel,
+            ts=loading_ts,
+            text=f"<@{user}> Sorry, I couldn't understand your request.",
+            blocks=None
+        )
 
 
 @app.action("helpful")
@@ -504,6 +576,27 @@ def action_not_helpful(body, ack, client, say):
             view=NOT_HELPFUL_MODAL
         )
 
+@app.action("login")
+def handle_login(ack, body, client, say):
+    ack()
+    user_id = body['user']['id']
+    email = get_slack_user_email(client, user_id)
+    store_user_in_supabase(user_id, email)
+    # Reply in the same thread if possible
+    thread_ts = None
+    if 'message' in body and 'thread_ts' in body['message']:
+        thread_ts = body['message']['thread_ts']
+    elif 'message' in body and 'ts' in body['message']:
+        thread_ts = body['message']['ts']
+    channel = body['channel']['id'] if 'channel' in body else None
+    if channel:
+        client.chat_postMessage(
+            channel=channel,
+            text=f"Logged in as {email}. You can now use the bot!",
+            thread_ts=thread_ts
+        )
+    else:
+        say(f"Logged in as {email}. You can now use the bot!")
 
 # Start your app
 if __name__ == "__main__":

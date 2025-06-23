@@ -6,4 +6,4 @@ acting as a proxy between the Slack bot and Supabase database.
 """
 
 __version__ = "1.0.0"
-__author__ = "Invoice AI Team"
+__author__ = "Aryan Saxena"
