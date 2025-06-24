@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 FastAPI Server Startup Script
 Run this to start the Invoice AI API server
