@@ -21,6 +21,10 @@ app = App(token=os.environ.get("SLACK_BOT_TOKEN"))
 user_context_map = {}
 # --- End in-memory store ---
 
+# --- In-memory store for uploaded files and user emails ---
+uploaded_files = []
+# --- End in-memory store ---
+
 @app.message("")
 def message_gemini(message, say, client):
     user = message['user']
@@ -318,10 +322,33 @@ def handle_login(ack, body, client, say):
         say(f"Logged in as {email}. You can now use the bot!")
 
 @app.command("/quid")
-def handle_quid_command(ack, body, client):
+def handle_quid_command(ack, body, client, say):
     ack()
-    trigger_id = body["trigger_id"]
     user_id = body["user_id"]
+    if not is_user_authenticated(user_id):
+        say(
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Please log in to use this bot."
+                    }
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "type": "button",
+                            "text": {"type": "plain_text", "text": "Log in"},
+                            "action_id": "login"
+                        }
+                    ]
+                }
+            ]
+        )
+        return
+    trigger_id = body["trigger_id"]
     channel_id = body["channel_id"]
     thread_ts = body.get("thread_ts")
     user_context_map[user_id] = {"channel": channel_id}
@@ -330,16 +357,33 @@ def handle_quid_command(ack, body, client):
     open_invoice_upload_modal(trigger_id, client)
 
 @app.view("upload_invoice_modal")
-def handle_invoice_upload_submission(ack, body, view, client, logger):
+def handle_invoice_upload_submission(ack, body, client):
     ack()
     user_id = body["user"]["id"]
     context = user_context_map.get(user_id)
+
     if context and "channel" in context:
         channel = context["channel"]
         client.chat_postMessage(
             channel=channel,
             text="Thank you! Your file is being processed. You will receive a confirmation shortly."
         )
+
+@app.event("file_shared")
+def handle_file_shared(event, client):
+    file_id = event["file_id"]
+    user_id = event["user_id"]
+    # Get user email
+    email = get_slack_user_email(client, user_id)
+    # Fetch file info from Slack
+    file_info = client.files_info(file=file_id)["file"]
+    # Save to the global array
+    uploaded_files.append({
+        "user_id": user_id,
+        "email": email,
+        "file_info": file_info
+    })
+    print(uploaded_files)
 
 if __name__ == "__main__":
     SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"]).start() 
