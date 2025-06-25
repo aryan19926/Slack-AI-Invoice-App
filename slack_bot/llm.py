@@ -9,7 +9,7 @@ GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 def ask_gemini(prompt, context=None):
     full_prompt = SYSTEM_PROMPT + "\n" + (context or "") + "\nUser: " + prompt
     headers = {"Content-Type": "application/json"}
-    params = {"key": GEMINI_API_KEY}
+    params = {"key": 'AIzaSyBQd9xqaUXsk0jpzdF8acwTEIts0CzFNq4'}
     data = {"contents": [{"parts": [{"text": full_prompt}]}]}
     response = requests.post(GEMINI_API_URL, headers=headers, params=params, json=data)
     if response.status_code == 200:

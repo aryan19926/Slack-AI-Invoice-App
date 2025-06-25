@@ -56,6 +56,7 @@ def message_gemini(message, say, client):
     )
     loading_ts = loading['ts']
     gemini_response = ask_gemini(text, context)
+    print("Gemini response:", gemini_response)
     action = None
     try:
         cleaned = extract_json_from_code_block(gemini_response)
@@ -183,6 +184,7 @@ def handle_app_mention(event, say, client):
     )
     loading_ts = loading['ts']
     gemini_response = ask_gemini(text)
+    print("Gemini response:", gemini_response)
     action = None
     try:
         cleaned = extract_json_from_code_block(gemini_response)
