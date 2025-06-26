@@ -1,12 +1,14 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from dotenv import load_dotenv
 from .models import APIResponse, ErrorResponse
 from .database import DatabaseClient
 from .auth import get_user_from_request
 from .routers.invoices import router as invoices_router
 from datetime import date
+from .routers.auth import router as auth_router
+from fastapi.staticfiles import StaticFiles
 
 # Load environment variables
 load_dotenv()
@@ -29,10 +31,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Serve static files from 'static' directory
+app.mount("/static", StaticFiles(directory="static", html=True), name="static")
+
 # Initialize database client
 db = DatabaseClient()
 
 app.include_router(invoices_router)
+
+app.include_router(auth_router)
 
 @app.get("/")
 async def root():
@@ -57,6 +64,10 @@ async def health_check():
             status_code=503,
             detail=f"Service unavailable: {str(e)}"
         )
+
+@app.get("/auth_callback.html")
+def serve_auth_callback():
+    return FileResponse("static/auth_callback.html")
 
 # Error handlers
 @app.exception_handler(HTTPException)

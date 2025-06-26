@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Slack OAuth Callback</title>
+    <style>
+        body {
+            min-height: 100vh;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #f8fafc 0%, #e0e7ef 100%);
+            font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, 'Liberation Sans', sans-serif;
+        }
+
+        .container {
+            background: #fff;
+            padding: 2.5rem 2rem 2rem 2rem;
+            border-radius: 18px;
+            box-shadow: 0 4px 24px 0 rgba(60, 72, 88, 0.12);
+            min-width: 320px;
+            max-width: 90vw;
+            text-align: center;
+        }
+
+        h2 {
+            font-weight: 600;
+            color: #2d3748;
+            margin-bottom: 1.5rem;
+        }
+
+        .status-success {
+            color: #22c55e;
+        }
+
+        .status-error {
+            color: #ef4444;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2 id="status-message">Logging you in...</h2>
+    </div>
+    <script>
+        const SUPABASE_URL = "https://mogwrjpbnxayfvppqgzb.supabase.co"; // e.g. https://xxxx.supabase.co
+        const slackProvider = "slack_oidc";
+        // Parse hash fragment (after #)
+        const hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const access_token = hashParams.get('access_token');
+        const refresh_token = hashParams.get('refresh_token');
+        const expires_at = hashParams.get('expires_at');
+        const expires_in = hashParams.get('expires_in');
+        // Parse query string (after ?)
+        const urlParams = new URLSearchParams(window.location.search);
+        const slack_user_id = urlParams.get('slack_user_id');
+
+        function setStatus(message, type) {
+            const status = document.getElementById('status-message');
+            status.textContent = message;
+            status.className = type ? `status-${type}` : '';
+        }
+
+        if (access_token && slack_user_id) {
+            fetch('/api/save_session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    access_token,
+                    refresh_token,
+                    expires_at,
+                    expires_in,
+                    slack_user_id
+                })
+            })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        setStatus("Login successful! You can close this window.", "success");
+                    } else {
+                        setStatus("Login failed: " + (data.error || "Unknown error"), "error");
+                    }
+                })
+                .catch(err => {
+                    setStatus("Login failed: " + err, "error");
+                });
+        } else {
+            setStatus("Missing access token or user ID.", "error");
+        }
+    </script>
+</body>
+
+</html>

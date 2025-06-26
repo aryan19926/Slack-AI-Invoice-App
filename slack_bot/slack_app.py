@@ -25,9 +25,19 @@ user_context_map = {}
 uploaded_files = []
 # --- End in-memory store ---
 
+def get_login_url(user_id):
+    redirect_to = f"https://b8cb-2405-201-6009-a0af-4d52-e4eb-cbe1-c001.ngrok-free.app/static/auth_callback.html?slack_user_id={user_id}"
+    SUPABASE_URL = "https://mogwrjpbnxayfvppqgzb.supabase.co"  # <-- replace with your actual Supabase project URL
+    return (
+        f"{SUPABASE_URL}/auth/v1/authorize"
+        f"?provider=slack_oidc"
+        f"&redirect_to={redirect_to}"
+    )
+
 @app.message("")
 def message_gemini(message, say, client):
     user = message['user']
+   # In your message handler:
     if not is_user_authenticated(user):
         say(
             "Please log in to use this bot.",
@@ -38,7 +48,7 @@ def message_gemini(message, say, client):
                         {
                             "type": "button",
                             "text": {"type": "plain_text", "text": "Log in"},
-                            "action_id": "login"
+                            "url": get_login_url(user)
                         }
                     ]
                 }
